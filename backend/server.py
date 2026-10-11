@@ -839,9 +839,8 @@ async def create_sale(data: SaleIn, u=Depends(need("pos"))):
 
 
 class VoidIn(BaseModel):
-    kind: str  # void | cancelled
+    kind: str = "void"  # void (cancelled legacy masih diterima utk data lama)
     reason: str
-    refund_now: bool = True
 
 
 @api.post("/sales/{sid}/void")
@@ -855,30 +854,29 @@ async def void_sale(sid: str, data: VoidIn, u=Depends(need("sales_void"))):
     movs = await db.stock_movements.find({"ref": s["number"], "type": "penjualan", "outlet_id": OUTLET}, {"_id": 0}).to_list(500)
     for mv in movs:
         await move_stock(mv["ingredient_id"], mv["location"], -mv["qty"], f"{data.kind}_penjualan", s["number"], u)
-    # original payment lines stay; payment fee is reversed; money back is a separate refund record
-    sess = await open_session()
+    # void = transaksi batal total -> nilai kembali 0, BUKAN baris minus.
+    # Baris pemasukan nota dinolkan (nilai asli disimpan untuk audit), tidak ada refund bernilai negatif.
     fees = await db.finance.find({"ref": sid, "type": "expense", "category": "Biaya Pembayaran", "outlet_id": OUTLET}, {"_id": 0}).to_list(5)
     for f in fees:
-        await add_finance("expense", f["category"], -f["amount"], f"Batal biaya {s['number']}", sid, u, method=f.get("method"))
+        if not f.get("voided"):
+            await db.finance.update_one({"id": f["id"]}, {"$set": {"voided": True, "original_amount": f["amount"], "amount": 0,
+                                                                    "void_note": f"Batal biaya {s['number']}: {data.reason}"}})
+    incomes = await db.finance.find({"ref": sid, "type": "income", "outlet_id": OUTLET}, {"_id": 0}).to_list(50)
+    for fr in incomes:
+        if not fr.get("voided"):
+            await db.finance.update_one({"id": fr["id"]}, {"$set": {"voided": True, "original_amount": fr["amount"], "amount": 0,
+                                                                     "void_note": f"Void {s['number']}: {data.reason}"}})
     refund = await insert("refunds", {"sale_id": sid, "number": s["number"], "amount": s["total"], "method": s["payment_method"],
-                                      "reason": data.reason, "status": "pending", "created_by": u["name"]})
-    if data.refund_now:
-        await pay_refund_doc(refund, u, sess)
+                                      "reason": data.reason, "status": "paid", "paid_by": u["name"], "paid_at": now().isoformat(),
+                                      "created_by": u["name"]})
     # reverse loyalty
     if s.get("customer_id"):
         await db.customers.update_one({"id": s["customer_id"]}, {"$inc": {"points": -s.get("points_earned", 0), "visits": -1, "total_spent": -s["total"]}})
     await db.sales.update_one({"id": sid}, {"$set": {"status": data.kind, "void_reason": data.reason,
                                                     "void_by": u["name"], "void_at": now().isoformat()}})
     await audit("sale", sid, data.kind, u, before={"status": s.get("status", "paid"), "total": s["total"]},
-                after={"status": data.kind, "refund_id": refund["id"], "refund_now": data.refund_now}, reason=data.reason)
+                after={"status": data.kind, "refund_id": refund["id"]}, reason=data.reason)
     return {"ok": True, "status": data.kind, "refund": refund}
-
-
-async def pay_refund_doc(refund, u, sess=None):
-    sess = sess or await open_session()
-    await add_finance("income", "Refund Penjualan", -refund["amount"], f"Refund {refund['number']}: {refund['reason']}", refund["sale_id"], u,
-                      method=refund["method"], session_id=sess["id"] if sess else None, source="kasir")
-    await db.refunds.update_one({"id": refund["id"]}, {"$set": {"status": "paid", "paid_by": u["name"], "paid_at": now().isoformat()}})
 
 
 @api.get("/sales")
@@ -947,7 +945,7 @@ async def cash_outlet(u=Depends(need("petty_cash"))):
     cout = sum(r["amount"] for r in rows if r["type"] == "expense")
     hist = [{"id": r["id"], "type": r["type"], "category": r.get("category", ""), "amount": round(r["amount"], 2),
              "note": r.get("note", ""), "user_name": r.get("user_name", ""), "date": r.get("date"),
-             "time": (r.get("created_at") or "")[11:16], "created_at": r.get("created_at")} for r in rows]
+             "time": (r.get("created_at") or "")[11:16], "created_at": r.get("created_at")} for r in rows if not r.get("voided")]
     return {"open": True, "opened_by": sess.get("opened_by"), "opened_at": sess.get("created_at"),
             "opening_cash": round(sess["opening_cash"], 2), "cash_in": round(cin, 2), "cash_out": round(cout, 2),
             "balance": round(sess["opening_cash"] + cin - cout, 2), "history": hist}

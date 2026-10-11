@@ -44,7 +44,7 @@ export function SaleTickets({ sale, settings, onVoided }: { sale: any; settings:
     setBusy(true);
     try {
       await api(`/sales/${sale.id}/void`, { body: { kind: voidKind, reason } });
-      toast(voidKind === "void" ? "Nota di-void, stok & keuangan dikembalikan" : "Pesanan dibatalkan");
+      toast("Nota di-void — transaksi dibatalkan, nilai kembali Rp 0 (stok & keuangan dikembalikan)");
       onVoided?.({ ...sale, status: voidKind, void_reason: reason });
       setVoidKind(null);
       setReason("");
@@ -112,17 +112,14 @@ export function SaleTickets({ sale, settings, onVoided }: { sale: any; settings:
         </View>
       )}
       {!voided && can("sales_void") && !voidKind && !adjKind && (
-        <View style={s.row}>
-          <Btn title="Void" variant="ghost" icon="close-circle-outline" style={{ flex: 1 }} testID="void-sale-button" onPress={() => setVoidKind("void")} />
-          <Btn title="Batalkan Pesanan" variant="ghost" icon="ban-outline" style={{ flex: 1 }} testID="cancel-sale-button" onPress={() => setVoidKind("cancelled")} />
-        </View>
+        <Btn title="Void (Batalkan Pesanan)" variant="ghost" icon="close-circle-outline" testID="void-sale-button" onPress={() => setVoidKind("void")} />
       )}
       {voidKind && (
         <View>
-          <Field label={voidKind === "void" ? "Alasan void (salah input, dll)" : "Alasan pembatalan pesanan"} testID="void-reason-input" value={reason} onChangeText={setReason} />
+          <Field label="Alasan void (salah input, dll) — nilai kembali Rp 0" testID="void-reason-input" value={reason} onChangeText={setReason} />
           <View style={s.row}>
             <Btn title="Kembali" variant="ghost" style={{ flex: 1 }} testID="void-back-button" onPress={() => setVoidKind(null)} />
-            <Btn title={voidKind === "void" ? "Konfirmasi Void" : "Konfirmasi Batal"} variant="danger" style={{ flex: 1 }} loading={busy} disabled={!reason.trim()} testID="void-confirm-button" onPress={doVoid} />
+            <Btn title="Konfirmasi Void" variant="danger" style={{ flex: 1 }} loading={busy} disabled={!reason.trim()} testID="void-confirm-button" onPress={doVoid} />
           </View>
         </View>
       )}
