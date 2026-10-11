@@ -99,3 +99,55 @@ export async function printTickets(sale: any, settings: any, stations: Station[]
   const html = `<html><head><meta name="viewport" content="width=device-width"/><style>@page{size:${mm}mm auto;margin:2mm}body{margin:0}pre{font-family:monospace;font-size:${fontPx}px;line-height:1.3;margin:0 0 12px}</style></head><body>${pages}</body></html>`;
   await Print.printAsync({ html });
 }
+
+// ---------- Laporan Tutup Kasir (struk rekonsiliasi kas per shift) ----------
+export function closeReportLines(rec: any, settings: any): string[] {
+  const W = colsFor(settings);
+  const r = settings?.receipt || {};
+  const led = rec || {};
+  const sel = Math.round(led.selisih || 0);
+  const selLabel = sel === 0 ? "SEIMBANG" : sel < 0 ? `KURANG ${money(Math.abs(sel))}` : `LEBIH ${money(sel)}`;
+  const out = [
+    center(r.cafe_name || "RLW", W),
+    center("LAPORAN TUTUP KASIR", W),
+    line(W, "="),
+    lr("Tanggal", String(led.date || ""), W),
+    lr("Jam Tutup", (led.created_at || "").slice(11, 16), W),
+    lr("Ditutup oleh", led.user_name || "-", W),
+    line(W),
+    lr("Transaksi", String(led.count ?? 0), W),
+    lr("Total Penjualan", money(led.total || 0), W),
+    line(W),
+    center("REKONSILIASI KAS (TUNAI)", W),
+    lr("Kas Awal", money(led.kas_awal || 0), W),
+    lr("Pemasukan Tunai", `+${money(led.total_pemasukan_cash || 0)}`, W),
+    lr("Pengeluaran Tunai", `-${money(led.total_pengeluaran_cash || 0)}`, W),
+    lr("KAS SISTEM", money(led.kas_sistem || 0), W),
+    lr("KAS AKTUAL", money(led.kas_aktual || 0), W),
+    lr("SELISIH", `${sel > 0 ? "+" : ""}${money(sel)}`, W),
+    center(selLabel, W),
+    ...(led.selisih_note ? wrap(`Alasan: ${led.selisih_note}`, W) : []),
+  ];
+  if (Array.isArray(led.shifts) && led.shifts.length) {
+    out.push(line(W), center("PER SHIFT", W));
+    for (const sh of led.shifts) {
+      out.push(lr(`Shift ${sh.no} ${sh.user_name || ""}`.trim(), money(sh.total || 0), W));
+      out.push(`  ${sh.start || ""}-${sh.end || "tutup"} - ${sh.count ?? 0} nota`.slice(0, W));
+    }
+  }
+  const bm = led.by_method || {};
+  if (Object.keys(bm).length) {
+    out.push(line(W), center("PER METODE BAYAR", W));
+    for (const k of Object.keys(bm)) out.push(lr(k, money(bm[k]), W));
+  }
+  out.push(line(W, "="), ...wrap(r.footer_note, W).map((t) => center(t, W)));
+  return out;
+}
+
+export async function printCloseReport(rec: any, settings: any) {
+  const mm = Number(settings?.printer?.paper_width) === 80 ? 80 : 58;
+  const fontPx = mm === 80 ? 12 : 11;
+  const body = closeReportLines(rec, settings).join("\n").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const html = `<html><head><meta name="viewport" content="width=device-width"/><style>@page{size:${mm}mm auto;margin:2mm}body{margin:0}pre{font-family:monospace;font-size:${fontPx}px;line-height:1.3;margin:0}</style></head><body><pre>${body}</pre></body></html>`;
+  await Print.printAsync({ html });
+}

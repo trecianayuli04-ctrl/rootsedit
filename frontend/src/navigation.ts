@@ -16,6 +16,7 @@ export const MODULES = [
   { key: "payroll", title: "Payroll", icon: "cash-outline", perm: "payroll", route: "/m/payroll" },
   { key: "marketing", title: "Marketing", icon: "megaphone-outline", perm: "marketing", route: "/m/marketing" },
   { key: "reports", title: "Laporan", icon: "bar-chart-outline", perm: "reports", route: "/m/reports" },
+  { key: "sales-recap", title: "Rekap Penjualan", icon: "trending-up-outline", perm: "reports", route: "/m/sales-recap" },
   { key: "users", title: "Karyawan", icon: "people-outline", perm: "users", route: "/m/users" },
 ] as const;
 

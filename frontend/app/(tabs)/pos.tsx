@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, num, rp, useApi } from "@/src/api";
 import { usesNativeTabs } from "@/src/navigation";
 import { SaleTickets } from "@/src/sale-tickets";
+import { printCloseReport } from "@/src/receipt";
 import { PettyCashSheet, ExternalOrderSheet } from "@/src/pos-extra";
 import { useAuth } from "@/src/auth";
 import { Handover, KioskAttendance, LiveAttendance, OpenRegister, useLiveAttendance } from "@/src/pos-shift";
@@ -41,6 +42,8 @@ export default function POS() {
   const [closeOpen, setCloseOpen] = useState(false);
   const [summary, setSummary] = useState<any>(null);
   const [kasAktual, setKasAktual] = useState("");
+  const [selisihNote, setSelisihNote] = useState("");
+  const [closeReceipt, setCloseReceipt] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const { data: settings } = useApi<any>("/settings");
   const { data: payMethods } = useApi<any[]>("/config/payment_methods?active=true");
@@ -136,6 +139,7 @@ export default function POS() {
     setCloseOpen(true);
     setSummary(null);
     setKasAktual("");
+    setSelisihNote("");
     try {
       setSummary(await api("/pos/summary"));
     } catch (e: any) {
@@ -145,9 +149,10 @@ export default function POS() {
   const doClose = async () => {
     setBusy(true);
     try {
-      await api("/pos/close", { body: { kas_aktual: num(kasAktual) } });
+      const rec: any = await api("/pos/close", { body: { kas_aktual: num(kasAktual), selisih_note: selisihNote } });
       toast("Kasir ditutup");
       setCloseOpen(false);
+      setCloseReceipt(rec);
       reg.reload();
     } catch (e: any) {
       toast(e.message, "error");
@@ -376,6 +381,9 @@ export default function POS() {
                   <Text style={[s.value, { fontSize: 22, color: selisihColor }]} testID="close-selisih-value">{selisih > 0 ? "+" : ""}{rp(selisih)}</Text>
                 </Card>
               )}
+              {hasAktual && selisih !== 0 && (
+                <Field label="Alasan selisih (wajib)" testID="close-selisih-note-input" value={selisihNote} onChangeText={setSelisihNote} placeholder="mis. kembalian kurang, salah hitung" />
+              )}
               <Text style={s.sub}>Modal awal {rp(kasAwal)}</Text>
               {summary.shifts.map((sh: any) => (
                 <Card key={sh.no} testID={`close-shift-${sh.no}`}>
@@ -387,10 +395,30 @@ export default function POS() {
                 <View key={k} style={[s.row, { justifyContent: "space-between" }]}><Text style={s.sub}>{k}</Text><Text style={s.title}>{rp(v)}</Text></View>
               ))}
               {summary.closings?.length > 0 && <Text style={s.sub}>Sudah ditutup {summary.closings.length}x hari ini</Text>}
-              <Btn title="Tutup Kasir Sekarang" variant="danger" testID="confirm-close-register-button" loading={busy} onPress={doClose} />
+              <Btn title="Tutup Kasir Sekarang" variant="danger" testID="confirm-close-register-button" loading={busy} disabled={hasAktual && selisih !== 0 && !selisihNote.trim()} onPress={doClose} />
             </ScrollView>
           );
         })()}
+      </Sheet>
+      <Sheet visible={!!closeReceipt} onClose={() => setCloseReceipt(null)} title="Laporan Tutup Kasir" testID="close-report-sheet">
+        {closeReceipt && (
+          <View style={{ gap: sp.md }}>
+            <Text style={s.sub}>{closeReceipt.date} · ditutup oleh {closeReceipt.user_name}</Text>
+            <View style={s.wrap}>
+              <Stat label="Kas Sistem" value={rp(closeReceipt.kas_sistem)} testID="report-kas-sistem" />
+              <Stat label="Kas Aktual" value={rp(closeReceipt.kas_aktual)} testID="report-kas-aktual" />
+              <Stat label="Selisih" value={`${closeReceipt.selisih > 0 ? "+" : ""}${rp(closeReceipt.selisih)}`} tone={closeReceipt.selisih === 0 ? "success" : closeReceipt.selisih < 0 ? "error" : "brand"} testID="report-selisih" />
+            </View>
+            <Card style={{ gap: sp.xs }}>
+              <View style={[s.row, { justifyContent: "space-between" }]}><Text style={s.sub}>Kas Awal</Text><Text style={s.title}>{rp(closeReceipt.kas_awal)}</Text></View>
+              <View style={[s.row, { justifyContent: "space-between" }]}><Text style={s.sub}>Pemasukan tunai</Text><Text style={[s.title, { color: colors.success }]}>+{rp(closeReceipt.total_pemasukan_cash)}</Text></View>
+              <View style={[s.row, { justifyContent: "space-between" }]}><Text style={s.sub}>Pengeluaran tunai</Text><Text style={[s.title, { color: colors.error }]}>-{rp(closeReceipt.total_pengeluaran_cash)}</Text></View>
+            </Card>
+            {!!closeReceipt.selisih_note && <Text style={s.sub} testID="report-selisih-note">Alasan selisih: {closeReceipt.selisih_note}</Text>}
+            <Btn title="Cetak Laporan" icon="print-outline" testID="print-close-report-button" onPress={() => printCloseReport(closeReceipt, settings)} />
+            <Btn title="Selesai" variant="secondary" testID="close-report-done-button" onPress={() => setCloseReceipt(null)} />
+          </View>
+        )}
       </Sheet>
     </Page>
   );

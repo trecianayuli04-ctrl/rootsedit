@@ -953,6 +953,7 @@ async def cash_outlet(u=Depends(need("petty_cash"))):
 
 class CloseIn(BaseModel):
     kas_aktual: float = 0
+    selisih_note: str = ""
 
 
 @api.post("/pos/close")
@@ -966,6 +967,9 @@ async def pos_close(data: CloseIn, u=Depends(need("pos"))):
     kas_sistem = ledger["kas_sistem"]
     kas_aktual = round(data.kas_aktual or 0, 2)
     selisih = round(kas_aktual - kas_sistem, 2)
+    note = (data.selisih_note or "").strip()
+    if selisih != 0 and not note:
+        raise HTTPException(400, "Kas tidak balance — wajib isi alasan selisih")
     t = now()
     shifts = summ["shifts"]
     shifts[-1].update({"end": t.strftime("%H:%M"), "end_ts": t.isoformat()})
@@ -974,10 +978,67 @@ async def pos_close(data: CloseIn, u=Depends(need("pos"))):
                                            "kas_awal": ledger["kas_awal"],
                                            "total_pemasukan_cash": ledger["total_pemasukan_cash"],
                                            "total_pengeluaran_cash": ledger["total_pengeluaran_cash"],
-                                           "kas_sistem": kas_sistem, "kas_aktual": kas_aktual, "selisih": selisih})
+                                           "kas_sistem": kas_sistem, "kas_aktual": kas_aktual,
+                                           "selisih": selisih, "selisih_note": note})
     await db.register_sessions.update_one({"id": sess["id"]}, {"$set": {"status": "closed", "shifts": shifts, "closed_by": u["name"], "closed_at": t.isoformat()}})
     await db.sales.update_many({"session_id": sess["id"]}, {"$set": {"closed": True}})
     return rec
+
+
+RECAP_ROLES = ["owner", "manager", "supervisor", "finance", "marketing"]
+
+
+@api.get("/sales/recap")
+async def sales_recap(period: str = "day", date: Optional[str] = None, u=Depends(current_user)):
+    """Rekap penjualan simpel & sinkron: omzet, selisih kas, top 5 terlaris, jam ramai."""
+    if u["role"] not in RECAP_ROLES:
+        raise HTTPException(403, "Akses ditolak untuk jabatan Anda")
+    p = rng(period, date)
+    q = {"date": {"$regex": f"^{p}"}}
+    allsales = await find("sales", q, limit=10000)
+    valid = [x for x in allsales if x.get("status", "paid") not in ["void", "cancelled"]]
+    omzet = sum(sale_total(x) for x in valid)
+    prod = {}
+    for s in valid:
+        for i in s["items"]:
+            d = prod.setdefault(i["name"], {"name": i["name"], "qty": 0, "omzet": 0.0})
+            d["qty"] += i["qty"]
+            d["omzet"] += i.get("subtotal", 0)
+    top = sorted(prod.values(), key=lambda x: (-x["qty"], -x["omzet"]))[:5]
+    for d in top:
+        d["omzet"] = round(d["omzet"], 2)
+    hours = {}
+    for s in valid:
+        hh = (s.get("time") or (s.get("created_at") or "")[11:16])[:2]
+        if hh.isdigit():
+            h = int(hh)
+            d = hours.setdefault(h, {"hour": h, "count": 0, "omzet": 0.0})
+            d["count"] += 1
+            d["omzet"] += sale_total(s)
+    busy = sorted(hours.values(), key=lambda x: x["hour"])
+    for d in busy:
+        d["omzet"] = round(d["omzet"], 2)
+    peak = max(busy, key=lambda x: x["count"]) if busy else None
+    by = {}
+    for s in valid:
+        by[s["payment_method"]] = round(by.get(s["payment_method"], 0) + sale_total(s), 2)
+    closes = await find("register_closes", q, limit=500)
+    kas = {"closes": len(closes),
+           "kas_sistem": round(sum(c.get("kas_sistem", 0) for c in closes), 2),
+           "kas_aktual": round(sum(c.get("kas_aktual", 0) for c in closes), 2),
+           "selisih": round(sum(c.get("selisih", 0) for c in closes), 2)}
+    close_rows = [{"user_name": c.get("user_name"), "kas_sistem": round(c.get("kas_sistem", 0), 2),
+                   "kas_aktual": round(c.get("kas_aktual", 0), 2), "selisih": round(c.get("selisih", 0), 2),
+                   "selisih_note": c.get("selisih_note", ""), "time": (c.get("created_at") or "")[11:16],
+                   "date": c.get("date")} for c in closes]
+    return {"period": period, "range": p,
+            "trx": len(valid), "void": len([x for x in allsales if x.get("status") == "void"]),
+            "cancelled": len([x for x in allsales if x.get("status") == "cancelled"]),
+            "omzet": round(omzet, 2), "discount": round(sum(x.get("discount", 0) for x in valid), 2),
+            "tax": round(sum(x.get("tax", 0) for x in valid), 2), "hpp": round(sum(x.get("hpp", 0) for x in valid), 2),
+            "profit": round(sum(x.get("profit", 0) for x in valid), 2),
+            "by_method": [{"method": k, "total": v} for k, v in sorted(by.items(), key=lambda x: -x[1])],
+            "top_products": top, "busy_hours": busy, "peak_hour": peak, "kas": kas, "closes_detail": close_rows}
 
 
 # ---------------- Stock opname ----------------
