@@ -1,0 +1,24 @@
+{
+  "summary": "Void-to-zero + single-void-button verification. Backend: 8/8 pytest cases PASSED (test_void_to_zero.py) covering cash void returns kas_sistem to opening, finance lines zeroed (not negative), QRIS void doesn't touch drawer, reason required, double-void rejected, GET /api/sales handles voided rows, /api/cash/outlet hides voided rows and has 0 balance back to opening, and VoidIn ignores legacy refund_now field. Frontend: verified via Playwright on preview URL — only ONE cancel-type button exists (data-testid=void-sale-button with label 'Void (Batalkan Pesanan)'), cancel-sale-button is COMPLETELY REMOVED. End-to-end void flow works: enter reason -> Konfirmasi Void -> VOID badge appears, receipt shows '*** VOID ***', no '-Rp' negative entries created in Kas Outlet history.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_void_to_zero.py",
+    "/app/test_reports/pytest/void_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py void_sale() correctly implements void-to-zero: iterates both income and expense (fee) finance rows for the sale, sets amount=0, voided=true, preserves original_amount for audit, and never inserts a negative-amount row. Good.",
+    "cash_ledger() sums raw amounts (including voided rows with amount=0); because voided rows carry amount=0 this is harmless, but filtering {voided: {$ne: true}} would be slightly cleaner and more defensive if someone forgets to also zero amount in future.",
+    "/api/cash/outlet already filters voided rows out of history list but the cin/cout totals still iterate the whole result set — again harmless because amount is 0, but a $ne voided filter at query time would be more robust.",
+    "server.py is now ~1844 lines — still a code-smell; recommend module split (pos, finance, inventory, auth) as previously noted."
+  ],
+  "updated_files": ["/app/backend/tests/test_void_to_zero.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100%"},
+  "test_credentials": "owner@rollow.id / Rollow@2026 (per /app/memory/test_credentials.md)",
+  "seed_data_creation": "Each pytest case opens a fresh register via /api/register/open, creates TEST_ prefixed manual-item sales, voids them, and closes the register in teardown. Frontend playwright test seeded one Cash sale (Rp 20.000) via API, voided it through the UI, verified VOID badge + kas outlet history has no negative rows.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest at /app/backend/tests/test_void_to_zero.py covers the new void semantics. Frontend sale rows use testID='sale-row-{sale_id}' (NOT 'nota-row-'). Sale date on backend uses server local tz (+07) — if testing late UTC night, use sales-next-button to advance to tomorrow's date in Riwayat Nota before clicking a sale. Open register has unique constraint (only one at a time); call /api/pos/close {kas_aktual:0} before /api/register/open. Void button on sale-tickets component is a single button labeled 'Void (Batalkan Pesanan)' — the old separate cancel-sale-button has been removed from source.",
+  "rca_of_the_issue": "Not applicable — all requested void-to-zero behavior verified: (1) voided cash sale -> finance income amount=0 + voided=true + original_amount kept, (2) no negative finance line ever created, (3) kas_sistem/cash_outlet.balance return to opening after cash void, (4) QRIS voids never touched drawer in the first place, (5) UI exposes a single Void button only."
+}

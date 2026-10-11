@@ -22,9 +22,19 @@ Bug fix for "Tutup Kasir" cash reconciliation. The remaining cash at register cl
 - Removed the "Sumber dana" / payment-method selector from POS Kas Keluar (`src/pos-extra.tsx`); kasir expenses default to Cash.
 - Non-cash (QRIS/Debit/Transfer) transactions never affect the drawer (filter guard verified).
 
+## Implemented (2026-06, follow-up — Void-to-Zero)
+- Void = transaksi batal total → nilai kembali Rp 0, BUKAN baris minus: baris pemasukan (dan biaya) nota di finance dinolkan (`amount=0`, `voided=true`, `original_amount` disimpan untuk audit). Tidak ada baris refund bernilai negatif lagi (`pay_refund_doc` dihapus, `VoidIn.refund_now` dihapus).
+- Opsi terpisah "Batalkan Pesanan" (cancelled) DIHAPUS dari UI nota — tersisa satu tombol "Void (Batalkan Pesanan)" (`void-sale-button`). Status legacy `cancelled` masih diterima backend untuk data lama.
+- Kas Outlet: baris void tidak muncul di riwayat; saldo kembali ke kas awal setelah void.
+- Verifikasi testing agent iteration_3: backend 8/8 PASS, frontend 100% (1 tombol void saja, badge VOID, tanpa entri -Rp).
+
 ## Verification
 Testing agent iteration_2: backend 9/9 pytest PASS (cases 1-8), frontend 100%. No open bugs.
 Test file: `/app/backend/tests/test_tutup_kasir.py`. Credentials in `/app/memory/test_credentials.md`.
+
+## Deployment
+- Deploy attempt failed at build_image: Expo/RN app on shadcn base image — node engine check (needs >=20.19.4 vs 20.19.2) + missing `build` script. Deployer staged a manifest override (yarn --ignore-engines; `yarn expo export --platform web`) on pending run 5077783d — auto-adopted on next redeploy.
+- BLOCKER: insufficient credits (needs 50 ECU, available 46.83). User must add balance, then redeploy.
 
 ## Backlog / Next (P2, non-blocking)
 - Optional: split server.py into modules (auth/pos/finance/inventory/payroll).
