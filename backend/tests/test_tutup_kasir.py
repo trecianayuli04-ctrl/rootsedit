@@ -25,7 +25,7 @@ def client():
 def _close_if_open(c):
     r = c.get(f"{API}/register/current", timeout=15)
     if r.status_code == 200 and (r.json() or {}).get("session"):
-        c.post(f"{API}/pos/close", json={"kas_aktual": 0}, timeout=15)
+        c.post(f"{API}/pos/close", json={"kas_aktual": 0, "selisih_note": "TEST cleanup"}, timeout=15)
 
 
 def _open(c, opening=50000):
@@ -104,7 +104,7 @@ def test_case3_close_kurang(client):
     _open(client, 50000)
     _cash_expense(client, 10000)
     _cash_sale(client, 20000, "Cash")
-    r = client.post(f"{API}/pos/close", json={"kas_aktual": 55000}, timeout=15)
+    r = client.post(f"{API}/pos/close", json={"kas_aktual": 55000, "selisih_note": "TEST kurang"}, timeout=15)
     assert r.status_code == 200, r.text
     rec = r.json()
     assert rec["kas_awal"] == 50000
@@ -133,7 +133,7 @@ def test_case5_close_lebih(client):
     _cash_sale(client, 20000, "Cash")
     led = _summary(client)["cash_ledger"]
     ks = led["kas_sistem"]
-    r = client.post(f"{API}/pos/close", json={"kas_aktual": ks + 5000}, timeout=15)
+    r = client.post(f"{API}/pos/close", json={"kas_aktual": ks + 5000, "selisih_note": "TEST lebih"}, timeout=15)
     assert r.status_code == 200, r.text
     rec = r.json()
     assert rec["selisih"] == 5000

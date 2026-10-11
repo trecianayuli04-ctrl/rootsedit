@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 4: mandatory selisih note at Tutup Kasir + Laporan Tutup Kasir sheet + /api/sales/recap + /m/sales-recap screen. Backend: 7/7 new pytest cases PASSED (test_recap_selisih.py). Full regression also PASSED — 24/24 including test_tutup_kasir.py (iter2) and test_void_to_zero.py (iter3) after updating their cleanup helpers to send the now-required selisih_note. Frontend: Playwright verified (a) owner opens Tutup Kasir with Kas Sistem=70000, enters Kas Aktual=65000 → close-selisih-note-input appears, confirm-close-register-button is DISABLED while note empty, becomes enabled after note filled; (b) close-report-sheet renders with report-kas-sistem='Rp 70.000', report-kas-aktual='Rp 65.000', report-selisih='-Rp 5.000', report-selisih-note='Alasan selisih: TEST ui minus 5rb', print-close-report-button + close-report-done-button both present and clickable; (c) finance login shows module-sales-recap in Lainnya, screen /m/sales-recap renders Ringkasan (recap-omzet/trx/profit/void), Selisih Kas card (recap-kas-card with recap-selisih in red rgb(198,40,40) when negative), Top 5 Terlaris (recap-top-0..4), Jam Ramai bars (recap-hour-{h}), Per Metode Bayar (Cash/QRIS), period chips recap-period-day/recap-period-month and recap-prev-button/recap-next-button all working; renders cleanly on both 1920 desktop and 390 mobile.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Rekap default date (TZ mismatch)",
+        "issue": "sales-recap.tsx initializes `date` with `new Date().toISOString().slice(0,10)` which is UTC. Backend uses Asia/Jakarta (+07) for sale.date / register_closes.date. During UTC evening (after 17:00 UTC = midnight+ Jakarta) the UI defaults to the previous day and shows Rp 0 even though backend has data under tz-today. Verified: date 2026-10-11 (UTC today) returned omzet=0; next-button to 2026-10-12 (Jakarta today) returned omzet=Rp 673.000, 36 trx, -Rp 1.873.000 selisih. Recommend using local date (e.g., `new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })`) or asking backend for its today().",
+        "affected_selectors": ["recap-range-text", "recap-omzet"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_recap_selisih.py",
+    "/app/backend/tests/test_tutup_kasir.py",
+    "/app/backend/tests/test_void_to_zero.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "Minor: use Jakarta (+07) local date for default on /m/sales-recap to avoid empty 'today' when accessed late UTC evening."
+  ],
+  "critical_code_review_comments": [
+    "server.py pos_close() correctly enforces mandatory selisih_note only when selisih != 0 (balanced close with empty note still allowed) — matches spec.",
+    "sales_recap() clean & synced: closes_detail.selisih sum equals kas.selisih; omzet filters out void/cancelled; top_products sorts by qty desc then omzet desc; busy_hours sorted by hour; peak_hour from max count. RECAP_ROLES correctly excludes crew (verified 403).",
+    "Minor FE tz bug (see integration issue) — not a regression but a usability nit.",
+    "server.py now ~1905 lines; still recommend splitting (previously flagged, not blocking)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_recap_selisih.py (new)",
+    "/app/backend/tests/test_tutup_kasir.py (cleanup helpers send selisih_note)",
+    "/app/backend/tests/test_void_to_zero.py (cleanup helpers send selisih_note)"
+  ],
+  "success_rate": {"backend": "100% (24/24)", "frontend": "100% core flows; 1 minor TZ nit"},
+  "test_credentials": "owner@rollow.id / Rollow@2026, finance@rollow.id / Rollow@2026, crew@rollow.id / Rollow@2026 (per /app/memory/test_credentials.md)",
+  "seed_data_creation": "Each pytest case opens a fresh register, creates TEST_ prefixed manual-item sales, closes with/without selisih_note. UI test seeded (owner API) one register open 50000 + Cash sale 20000; UI then closed register with Kas Aktual 65000 + note 'TEST ui minus 5rb'. All leftover closes are harmless (prefixed TEST*).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The pos/close endpoint now REQUIRES selisih_note when kas_aktual != kas_sistem (HTTP 400 'wajib isi alasan selisih'). All helper _close_if_open() in test files MUST pass selisih_note to avoid 400 in cleanup. Backend uses Asia/Jakarta (+07) for sale.date and register_closes.date — when asserting today(), use `dt.datetime.now(timezone(timedelta(hours=7))).strftime('%Y-%m-%d')`. Sales recap endpoint: GET /api/sales/recap?period=day&date=YYYY-MM-DD returns {omzet, trx, void, cancelled, profit, by_method, top_products[≤5], busy_hours[], peak_hour, kas{kas_sistem,kas_aktual,selisih,closes}, closes_detail[]}. RECAP_ROLES = owner/manager/supervisor/finance/marketing; crew → 403. Frontend Rekap screen testIDs: recap-period-day/-month, recap-prev-button/-next-button, recap-range-text, recap-omzet/-trx/-profit/-void, recap-kas-card/-selisih, recap-top-0..4, recap-hour-{h}.",
+  "rca_of_the_issue": "Minor FE TZ nit: /app/frontend/app/m/sales-recap.tsx line 21 uses `new Date().toISOString().slice(0,10)` for initial date which is UTC. Switch to Jakarta local date, e.g. `new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })`. Not blocking — users can click next-button to reach today."
+}

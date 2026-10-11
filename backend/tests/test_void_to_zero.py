@@ -26,7 +26,7 @@ def client():
     try:
         r2 = s.get(f"{API}/register/current", timeout=10)
         if r2.status_code == 200 and (r2.json() or {}).get("session"):
-            s.post(f"{API}/pos/close", json={"kas_aktual": 0}, timeout=10)
+            s.post(f"{API}/pos/close", json={"kas_aktual": 0, "selisih_note": "TEST cleanup"}, timeout=10)
     except Exception:
         pass
 
@@ -34,7 +34,7 @@ def client():
 def _close_if_open(c):
     r = c.get(f"{API}/register/current", timeout=15)
     if r.status_code == 200 and (r.json() or {}).get("session"):
-        c.post(f"{API}/pos/close", json={"kas_aktual": 0}, timeout=15)
+        c.post(f"{API}/pos/close", json={"kas_aktual": 0, "selisih_note": "TEST cleanup"}, timeout=15)
 
 
 def _open(c, opening=50000):
